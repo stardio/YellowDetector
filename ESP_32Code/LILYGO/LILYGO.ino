@@ -1,63 +1,83 @@
+#include <Wire.h>
+#include "DFRobot_TCS34725.h"
 #include <ModbusRTU.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
-#define RS485_RX 21
-#define RS485_TX 22
+// 핀 설정
+#define SDA_PIN 12 
+#define SCL_PIN 33
 #define RS485_RE_PIN 17       
 #define RS485_SHUTDOWN_PIN 19 
 #define BOOST_ENABLE_PIN 16   
-#define SLAVE_ID 1
+
+// BLE UUID 설정
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 ModbusRTU mb;
-uint16_t RAW_R = 0, RAW_G = 0, RAW_B = 0;
+DFRobot_TCS34725 tcs = DFRobot_TCS34725(&Wire, TCS34725_ADDRESS, TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
+BLECharacteristic *pCharacteristic;
+bool deviceConnected = false;
+
+uint16_t RAW_R, RAW_G, RAW_B, RAW_C;
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) { deviceConnected = true; };
+    void onDisconnect(BLEServer* pServer) { 
+        deviceConnected = false;
+        BLEDevice::startAdvertising(); // 연결 끊기면 다시 찾기 가능하게
+    }
+};
 
 void setup() {
     Serial.begin(115200);
+    pinMode(BOOST_ENABLE_PIN, OUTPUT); digitalWrite(BOOST_ENABLE_PIN, HIGH);
+    pinMode(RS485_SHUTDOWN_PIN, OUTPUT); digitalWrite(RS485_SHUTDOWN_PIN, HIGH);
 
-    pinMode(BOOST_ENABLE_PIN, OUTPUT);
-    digitalWrite(BOOST_ENABLE_PIN, HIGH);
-    pinMode(RS485_SHUTDOWN_PIN, OUTPUT);
-    digitalWrite(RS485_SHUTDOWN_PIN, HIGH);
-    
-    // RE/DE 핀 설정: ModbusRTU 라이브러리가 자동으로 제어하도록 설정
-    pinMode(RS485_RE_PIN, OUTPUT);
-    digitalWrite(RS485_RE_PIN, LOW);
+    // I2C & Sensor
+    Wire.begin(SDA_PIN, SCL_PIN);
+    tcs.begin();
 
-    Serial1.begin(115200, SERIAL_8N1, RS485_RX, RS485_TX);
-    
-    // 라이브러리에 RE_PIN 번호를 알려주어 송수신 전환을 자동으로 맡깁니다.
-    mb.begin(&Serial1, RS485_RE_PIN); 
-    mb.slave(SLAVE_ID);
-    
-    // 주소 등록: PLC가 257, 258, 259를 찾으므로 명확하게 해당 번호를 등록합니다.
-    mb.addIreg(257, 0); // Blue
-    mb.addIreg(258, 0); // Red
-    mb.addIreg(259, 0); // Green
+    // Modbus
+    Serial1.begin(115200, SERIAL_8N1, 21, 22);
+    mb.begin(&Serial1, RS485_RE_PIN);
+    mb.slave(1);
+    mb.addIreg(257); mb.addIreg(258); mb.addIreg(259);
 
-    Serial.println("\n--- PLC Address Link Success ---");
-    Serial.println("R,G,B 형식으로 입력하면 PLC로 전달됩니다.");
+    // BLE Init
+    BLEDevice::init("ESP32_Yellow_Sensor");
+    BLEServer *pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+    BLEService *pService = pServer->createService(SERVICE_UUID);
+    pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+    pCharacteristic->addDescriptor(new BLE2902());
+    pService->start();
+    BLEDevice::startAdvertising();
+
+    Serial.println("PLC + BLE System Ready!");
 }
 
 void loop() {
-    mb.task(); // PLC 응답 처리 (이제 84 에러 대신 정상 데이터를 보낼 것입니다)
+    mb.task();
+    
+    static unsigned long lastTime = 0;
+    if (millis() - lastTime > 200) {
+        tcs.getRGBC(&RAW_R, &RAW_G, &RAW_B, &RAW_C);
+        
+        // PLC 전송
+        mb.Ireg(257, RAW_B); mb.Ireg(258, RAW_R); mb.Ireg(259, RAW_G);
 
-    if (Serial.available()) {
-        String input = Serial.readStringUntil('\n');
-        input.trim();
-        int first = input.indexOf(',');
-        int second = input.lastIndexOf(',');
-
-        if (first != -1 && second != -1) {
-            RAW_R = input.substring(0, first).toInt();
-            RAW_G = input.substring(first + 1, second).toInt();
-            RAW_B = input.substring(second + 1).toInt();
-
-            // PLC 레지스터에 값 세팅
-            mb.Ireg(257, RAW_B); 
-            mb.Ireg(258, RAW_R);
-            mb.Ireg(259, RAW_G);
-            
-            Serial.printf("[수동입력] PLC전송 -> R:%d G:%d B:%d\n", RAW_R, RAW_G, RAW_B);
+        // BLE Notify (8바이트 패킷 전송)
+        if (deviceConnected) {
+            uint8_t data[8] = { (uint8_t)(RAW_R >> 8), (uint8_t)RAW_R, (uint8_t)(RAW_G >> 8), (uint8_t)RAW_G,
+                                (uint8_t)(RAW_B >> 8), (uint8_t)RAW_B, (uint8_t)(RAW_C >> 8), (uint8_t)RAW_C };
+            pCharacteristic->setValue(data, 8);
+            pCharacteristic->notify();
         }
+        lastTime = millis();
     }
     yield();
 }

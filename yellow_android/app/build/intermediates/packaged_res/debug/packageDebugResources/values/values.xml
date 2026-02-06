@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RGB Sensor BLE</string>
+    <string name="btn_scan_start">스캔 시작</string>
+    <string name="btn_scan_stop">스캔 중지</string>
+    <string name="status_connected">연결됨</string>
+    <string name="status_connecting">연결 중...</string>
+    <string name="status_disconnected">연결 해제됨</string>
+    <string name="status_no_device">발견된 기기 없음</string>
+    <string name="status_ready">준비됨</string>
+    <string name="status_scan_failed">스캔 실패: %1$d</string>
+    <string name="status_scan_stopped">스캔 중지됨</string>
+    <string name="status_scanning">주변 기기 찾는 중...</string>
+    <string name="status_selected">선택됨: %1$s</string>
+    <string name="toast_device_selected">%1$s 선택됨</string>
+    <string name="toast_enable_bluetooth">블루투스를 활성화해주세요</string>
+    <string name="toast_no_ble">이 기기는 BLE를 지원하지 않습니다</string>
+    <string name="toast_no_connect_permission">연결 권한이 없습니다</string>
+    <string name="toast_no_device_found">발견된 디바이스가 없습니다</string>
+    <string name="toast_no_scan_permission">블루투스 스캔 권한이 없습니다</string>
+    <string name="toast_permission_required">권한이 필요합니다</string>
+    <string name="toast_select_device_first">먼저 디바이스를 스캔하고 선택하세요</string>
+    <string name="value_b">B: %1$d</string>
+    <string name="value_g">G: %1$d</string>
+    <string name="value_r">R: %1$d</string>
+</resources>
